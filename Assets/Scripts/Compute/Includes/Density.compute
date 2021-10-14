@@ -1,0 +1,10 @@
+RWStructuredBuffer<float4> densityValues;
+float3 numPointsPerAxis;
+
+
+int indexFromCoord(int x, int y, int z)
+{
+    return x + numPointsPerAxis.x * y + numPointsPerAxis.x * numPointsPerAxis.y * z;
+}
+
+

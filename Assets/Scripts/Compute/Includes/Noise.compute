@@ -1,0 +1,152 @@
+﻿// Noise Shader Library for Unity - https://github.com/keijiro/NoiseShader
+//
+// Original work (webgl-noise) Copyright (C) 2011 Ashima Arts.
+// Translation and modification was made by Keijiro Takahashi.
+//
+// This shader is based on the webgl-noise GLSL shader. For further details
+// of the original shader, please see the following description from the
+// original source code.
+//
+// Description : Array and textureless GLSL 2D/3D/4D simplex
+//               noise functions.
+//      Author : Ian McEwan, Ashima Arts.
+//  Maintainer : ijm
+//     Lastmod : 20110822 (ijm)
+//     License : Copyright (C) 2011 Ashima Arts. All rights reserved.
+//               Distributed under the MIT License. See LICENSE file.
+//               https://github.com/ashima/webgl-noise
+float2 mod289(float2 x)
+{
+    return x - floor(x / 289) * 289;
+}
+
+float3 mod289(float3 x)
+{
+    return x - floor(x / 289.0) * 289.0;
+}
+
+float4 mod289(float4 x)
+{
+    return x - floor(x / 289.0) * 289.0;
+}
+
+float3 permute(float3 x)
+{
+    return mod289((x * 34 + 1) * x);
+}
+
+float4 permute(float4 x)
+{
+    return mod289((x * 34.0 + 1.0) * x);
+}
+
+float4 taylorInvSqrt(float4 r)
+{
+    return 1.79284291400159 - r * 0.85373472095314;
+}
+
+float4 SimplexNoise3DGrad(float3 v)
+{
+    // First corner
+    float3 i = floor(v + dot(v, 1.0 / 3));
+    float3 x0 = v - i + dot(i, 1.0 / 6);
+
+    // Other corners
+    float3 g = x0.yzx <= x0.xyz;
+    float3 l = 1 - g;
+    float3 i1 = min(g.xyz, l.zxy);
+    float3 i2 = max(g.xyz, l.zxy);
+
+    float3 x1 = x0 - i1 + 1.0 / 6;
+    float3 x2 = x0 - i2 + 1.0 / 3;
+    float3 x3 = x0 - 0.5;
+
+    // Permutations
+    i = mod289(i); // Avoid truncation effects in permutation
+    float4 p = permute(i.z + float4(0, i1.z, i2.z, 1));
+    p = permute(p + i.y + float4(0, i1.y, i2.y, 1));
+    p = permute(p + i.x + float4(0, i1.x, i2.x, 1));
+
+    // Gradients: 7x7 points over a square, mapped onto an octahedron.
+    // The ring size 17*17 = 289 is close to a multiple of 49 (49*6 = 294)
+    float4 gx = lerp(-1, 1, frac(floor(p / 7) / 7));
+    float4 gy = lerp(-1, 1, frac(floor(p % 7) / 7));
+    float4 gz = 1 - abs(gx) - abs(gy);
+
+    bool4 zn = gz < -0.01;
+    gx += zn * (gx < -0.01 ? 1 : -1);
+    gy += zn * (gy < -0.01 ? 1 : -1);
+
+    float3 g0 = normalize(float3(gx.x, gy.x, gz.x));
+    float3 g1 = normalize(float3(gx.y, gy.y, gz.y));
+    float3 g2 = normalize(float3(gx.z, gy.z, gz.z));
+    float3 g3 = normalize(float3(gx.w, gy.w, gz.w));
+
+    // Compute noise and gradient at P
+    float4 m = float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3));
+    float4 px = float4(dot(g0, x0), dot(g1, x1), dot(g2, x2), dot(g3, x3));
+
+    m = max(0.5 - m, 0);
+    float4 m3 = m * m * m;
+    float4 m4 = m * m3;
+
+    float4 temp = -8 * m3 * px;
+    float3 grad = m4.x * g0 + temp.x * x0 +
+                  m4.y * g1 + temp.y * x1 +
+                  m4.z * g2 + temp.z * x2 +
+                  m4.w * g3 + temp.w * x3;
+
+    return 107 * float4(grad, dot(m4, px));
+}
+
+float3 SimplexNoise2DGrad(float2 v)
+{
+    const float C1 = (3 - sqrt(3)) / 6;
+    const float C2 = (sqrt(3) - 1) / 2;
+
+    // First corner
+    float2 i = floor(v + dot(v, C2));
+    float2 x0 = v - i + dot(i, C1);
+
+    // Other corners
+    float2 i1 = x0.x > x0.y ? float2(1, 0) : float2(0, 1);
+    float2 x1 = x0 + C1 - i1;
+    float2 x2 = x0 + C1 * 2 - 1;
+
+    // Permutations
+    i = mod289(i); // Avoid truncation effects in permutation
+    float3 p = permute(i.y + float3(0, i1.y, 1));
+    p = permute(p + i.x + float3(0, i1.x, 1));
+
+    // Gradients: 41 points uniformly over a unit circle.
+    // The ring size 17*17 = 289 is close to a multiple of 41 (41*7 = 287)
+    float3 phi = p / 41 * 3.14159265359 * 2;
+    float2 g0 = float2(cos(phi.x), sin(phi.x));
+    float2 g1 = float2(cos(phi.y), sin(phi.y));
+    float2 g2 = float2(cos(phi.z), sin(phi.z));
+
+    // Compute noise and gradient at P
+    float3 m = float3(dot(x0, x0), dot(x1, x1), dot(x2, x2));
+    float3 px = float3(dot(g0, x0), dot(g1, x1), dot(g2, x2));
+
+    m = max(0.5 - m, 0);
+    float3 m3 = m * m * m;
+    float3 m4 = m * m3;
+
+    float3 temp = -8 * m3 * px;
+    float2 grad = m4.x * g0 + temp.x * x0 +
+                  m4.y * g1 + temp.y * x1 +
+                  m4.z * g2 + temp.z * x2;
+
+    return 99.2 * float3(grad, dot(m4, px));
+}
+
+float SimplexNoise2D(float2 v)
+{
+    return SimplexNoise2DGrad(v).z;
+}
+
+float SimplexNoise3D(float3 v)
+{
+    return SimplexNoise3DGrad(v).w;
+}

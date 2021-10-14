@@ -1,0 +1,158 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel March
+#include "Includes/MarchTables.compute"
+#include "Includes/Noise.compute"
+#include "Includes/Density.compute"
+
+static const int numThreads = 8;
+struct Vertex
+{
+    float3 position;
+    float3 normal;
+    int2 id;
+};
+
+struct Triangle
+{
+    float3 vertexC;
+    float3 vertexB;
+    float3 vertexA;
+};
+
+
+AppendStructuredBuffer<Triangle> triangles;
+AppendStructuredBuffer<float3> test;
+float isoLevel;
+bool smoothTerrain;
+
+float SampleDensity(int3 coord)
+{
+    int index = indexFromCoord(coord.x, coord.y, coord.z);
+    return densityValues[index].w;
+}
+
+float3 interpolateVerts(float4 v1, float4 v2)
+{
+    float t = (isoLevel - v1.w) / (v2.w - v1.w);
+    return v1.xyz + t * (v2.xyz - v1.xyz);
+}
+
+
+
+[numthreads(numThreads, numThreads, numThreads)]
+void March (int3 id : SV_DispatchThreadID)
+{
+    
+    if (id.x >= numPointsPerAxis.x - 1 || id.y >= numPointsPerAxis.y - 1 || id.z >= numPointsPerAxis.z - 1)
+    {
+        return;
+    }
+    
+    
+    //Calculate coordinates of each corner of the current cube
+    
+    
+    int3 cornerIndexCoords[8];
+        cornerIndexCoords[0] = id + int3(0, 0, 0);
+        cornerIndexCoords[1] = id + int3(1, 0, 0);
+        cornerIndexCoords[2] = id + int3(1, 0, 1);
+        cornerIndexCoords[3] = id + int3(0, 0, 1);
+        cornerIndexCoords[4] = id + int3(0, 1, 0);
+        cornerIndexCoords[5] = id + int3(1, 1, 0);
+        cornerIndexCoords[6] = id + int3(1, 1, 1);
+        cornerIndexCoords[7] = id + int3(0, 1, 1);
+    
+
+    // 8 corners of the current cube
+    
+    
+    float4 cornerDensityCoords[8] =
+    {
+        densityValues[indexFromCoord(id.x, id.y, id.z)],
+        densityValues[indexFromCoord(id.x + 1, id.y, id.z)],
+        densityValues[indexFromCoord(id.x + 1, id.y, id.z + 1)],
+        densityValues[indexFromCoord(id.x, id.y, id.z + 1)],
+        densityValues[indexFromCoord(id.x, id.y + 1, id.z)],
+        densityValues[indexFromCoord(id.x + 1, id.y + 1, id.z)],
+        densityValues[indexFromCoord(id.x + 1, id.y + 1, id.z + 1)],
+        densityValues[indexFromCoord(id.x, id.y + 1, id.z + 1)]
+    };
+    
+    
+    
+
+    
+    
+    int cubeConfig = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        
+        if (SampleDensity(cornerIndexCoords[i]) < isoLevel)
+        {
+            cubeConfig |= (1 << i);
+        }
+        
+        
+        /*
+        if (SimplexNoise3D(cornerCoords[i].xyz) < isoLevel)
+        {
+            cubeConfig |= (1 << i);
+        }
+        */
+
+    }
+
+    
+    int edgeIndices[] = triangulation[cubeConfig];
+    
+    for (int j = 0; j < 16; j += 3)
+    {
+        if (edgeIndices[j] == -1)
+        {
+            break;
+        }
+        
+        /*
+        int a0 = cornerIndexAFromEdge[edgeIndices[j + 0]];
+        int a1 = cornerIndexBFromEdge[edgeIndices[j + 0]];
+        
+        int b0 = cornerIndexAFromEdge[edgeIndices[j + 1]];
+        int b1 = cornerIndexBFromEdge[edgeIndices[j + 1]];
+        
+        int c0 = cornerIndexAFromEdge[edgeIndices[j + 2]];
+        int c1 = cornerIndexBFromEdge[edgeIndices[j + 2]];
+        */
+        int edgeIndexA = edgeIndices[j];
+        int a0 = cornerIndexAFromEdge[edgeIndexA];
+        int a1 = cornerIndexBFromEdge[edgeIndexA];
+
+        int edgeIndexB = edgeIndices[j + 1];
+        int b0 = cornerIndexAFromEdge[edgeIndexB];
+        int b1 = cornerIndexBFromEdge[edgeIndexB];
+
+        int edgeIndexC = edgeIndices[j + 2];
+        int c0 = cornerIndexAFromEdge[edgeIndexC];
+        int c1 = cornerIndexBFromEdge[edgeIndexC];
+  
+        
+        //Create Triangle
+        Triangle tri;
+       
+        if (smoothTerrain)
+        {
+            tri.vertexA = interpolateVerts(cornerDensityCoords[a0], cornerDensityCoords[a1]);
+            tri.vertexB = interpolateVerts(cornerDensityCoords[b0], cornerDensityCoords[b1]);
+            tri.vertexC = interpolateVerts(cornerDensityCoords[c0], cornerDensityCoords[c1]);
+        }
+        else
+        {
+            tri.vertexA = ((cornerDensityCoords[a0]) + (cornerDensityCoords[a1])) * 0.5f;
+            tri.vertexB = ((cornerDensityCoords[b0]) + (cornerDensityCoords[b1])) * 0.5f;
+            tri.vertexC = ((cornerDensityCoords[c0]) + (cornerDensityCoords[c1])) * 0.5f;
+        }
+  
+        triangles.Append(tri);
+
+    }
+  
+}
